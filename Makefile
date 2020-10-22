@@ -11,11 +11,14 @@ all: $(TARGETS)
 debug: CFLAGS += $(DEBUG)
 debug: $(TARGETS)
 
+shared.o: shared.c shared.h
+	$(CC) $(CFLAGS) -c shared.c -o shared.o
+
 rpsserver: server.c
 	$(CC) $(CFLAGS) server.c -o rpsserver
 
-rpsclient: client.c
-	$(CC) $(CFLAGS) client.c -o rpsclient
+rpsclient: client.c shared.o
+	$(CC) $(CFLAGS) shared.o client.c -o rpsclient
 
 clean:
 	rm -f $(TARGETS) *.o
