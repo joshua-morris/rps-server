@@ -16,23 +16,27 @@ void exit_server(ServerError err) {
 }
 
 int create_server() {
+    // get the address info on localhost on an ephemeral port
     struct addrinfo* ai = NULL;
     struct addrinfo hints;
-    const char* port = "0"; // ephemeral port
+    const char* port = "0";
 
     memset(&hints, 0, sizeof(struct addrinfo));
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
-    hints.ai_flags = AI_PASSIVE;
+    hints.ai_flags = AI_PASSIVE; // on localhost
 
     int err;
-    if ((err = getaddrinfo("localhost", port, &hints, &ai)) != 0) {
+    if ((err = getaddrinfo(NULL, port, &hints, &ai)) != 0) {
         freeaddrinfo(ai);
         fprintf(stderr, "%s\n", gai_strerror(err));
         return 1;
     }
 
-    int serv = socket(AF_INET, SOCK_STREAM, 0);
+    // get the socket descriptor
+    int serv = socket(ai->ai_family, ai->ai_socktype, 0);
+
+    // bind the socket to the port from the getaddrinfo
     if (bind(serv, (struct sockaddr*)ai->ai_addr, sizeof(struct sockaddr))) {
         perror("Binding");
         return 3;
@@ -47,6 +51,19 @@ int create_server() {
     }
     printf("%u\n", ntohs(ad.sin_port));
     fflush(stdout);
+
+    if (listen(serv, 10)) {
+
+    }
+
+    int conn_fd;
+    char* msg = "hi";
+    while ((conn_fd = accept(serv, 0, 0), conn_fd >= 0)) {
+        FILE* stream = fdopen(conn_fd, "w");
+        fputs(msg, stream);
+        fflush(stream);
+        fclose(stream);
+    }
 
     return 0;
 }
