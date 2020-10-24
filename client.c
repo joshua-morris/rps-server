@@ -8,36 +8,94 @@
 
 #include "shared.h"
 
+#define SLEEP_TIME 50000
+#define MAX_MATCHES 20
+
+/**
+ * Represents the information for a server
+ *
+ * port: the port of the server
+ * to: file descriptor, the server is listening to this
+ * from: file descriptor, the server will write here
+ *
+ */
 typedef struct Server {
     char* port;
     FILE* to;
     FILE* from;
 } Server;
 
+/**
+ * Represents the information for a match from the perspective of an agent.
+ *
+ * id: the id of this match
+ * opponentName: the name of the opponent in the match
+ * port: the port to connect to, to play
+ * server: the server information for the opponent
+ *
+ */
 typedef struct Match {
     int id;
     char* opponentName;
     char* port;
+    int opponentScore;
+    int playerScore;
     Server server;
 } Match;
 
+/**
+ * Represents an agent/client that can play a match.
+ *
+ * name: the name of this agent
+ * numMatches: the number of matches this agent will play
+ * matchesRemaining: the number of matches this agent has left to play
+ * port: the port this agent is listening on
+ * server: the rpsserver info
+ * matches: the matches that this agent will play
+ *
+ */
 typedef struct AgentInfo {
     char* name;
     int numMatches;
     int matchesRemaining;
     int port;
+    int socketFd;
     Server server;
     Match* matches;
 } AgentInfo;
 
+/** The possible game results */
+typedef enum Result {
+    WIN,
+    LOSE,
+    TIE
+} Result;
+
+/** The possible errors, as per the specification, includes an UNSPECIFIED
+ * type for situations not being tested.
+ */
 typedef enum ClientError {
     SUCCESS,
     INCORRECT_ARG_COUNT,
     INVALID_NAME,
     INVALID_MATCH_COUNT,
-    INVALID_PORT
+    INVALID_PORT,
+    UNSPECIFIED
 } ClientError;
 
+/** The possible moves */
+typedef enum MoveType {
+    ROCK,
+    PAPER,
+    SCISSORS
+} MoveType;
+
+/**
+ * Exits the client with a given error.
+ *
+ * err (ClientError): the error to exit with
+ *
+ */
 void exit_client(ClientError err) {
     switch (err) {
         case INCORRECT_ARG_COUNT:
@@ -59,6 +117,12 @@ void exit_client(ClientError err) {
     exit(err);
 }
 
+/**
+ * Initialises a server struct.
+ *
+ * Returns a new server struct.
+ *
+ */
 Server init_server() {
     Server server;
     server.port = malloc(0);
@@ -66,6 +130,12 @@ Server init_server() {
     return server;
 }
 
+/**
+ * Initialises an agent struct
+ *
+ * Returns a new agent struct.
+ *
+ */
 AgentInfo init_agent() {
     AgentInfo info;
     info.name = malloc(0);
@@ -77,34 +147,61 @@ AgentInfo init_agent() {
     return info;
 }
 
-bool parse_name(char* name, AgentInfo* info) {
+/**
+ * Parse the name from the arguments
+ *
+ * name (char*): the name to parse
+ * info (AgentInfo*): the agent to store this name in
+ *
+ * Returns SUCCESS if successful, otherwise the appropriate error.
+ *
+ */
+ClientError parse_name(char* name, AgentInfo* info) {
     for (int c = 0; c < strlen(name); c++) {
         if (!isalnum(name[c])) {
-            return false;
+            return INVALID_NAME;
         }
     }
 
     if (!strcmp(name, "TIE") || !strcmp(name, "ERROR")) {
-        return false;
+        return INVALID_NAME;
     }
 
     strcpy(info->name, name);
-    return true;
+    return SUCCESS;
 }
 
-bool parse_num_matches(char* matches, AgentInfo* info) {
+/**
+ * Parse the number of matches from the arguments
+ *
+ * matches (char*): the number to parse
+ * info (AgentInfo*): the agent to store this number in
+ *
+ * Returns SUCCESS if successful, otherwise the appropriate error.
+ *
+ */
+ClientError parse_num_matches(char* matches, AgentInfo* info) {
     int numMatches = strtol(matches, NULL, 10);
     if (numMatches == 0) {
-        return false;
+        return INVALID_MATCH_COUNT;
     }
 
     info->numMatches = numMatches;
     info->matchesRemaining = numMatches;
     info->matches = realloc(info->matches, sizeof(Match) * numMatches);
-    return true;
+    return SUCCESS;
 }
 
-bool connect_to_server(Server* info, char* port) {
+/**
+ * Connect to the server on localhost at the given port.
+ *
+ * info (Server*): store the information about this server here
+ * port (char*): the port to connect to
+ *
+ * Returns SUCCESS if successful, otherwise the appropriate error.
+ *
+ */
+ClientError connect_to_server(Server* info, char* port) {
     // get the address info on localhost
     struct addrinfo* ai = 0;
     struct addrinfo hints;
@@ -117,30 +214,39 @@ bool connect_to_server(Server* info, char* port) {
     int err;
     if ((err = getaddrinfo(NULL, port, &hints, &ai)) != 0) {
         freeaddrinfo(ai);
-        return false; // failed to getaddrinfo
+        return INVALID_PORT; // failed to getaddrinfo
     }
 
     // get the socket descriptor
     int sockfd;
     if ((sockfd = socket(ai->ai_family, ai->ai_socktype, 0)) == -1) {
-        return false; // failed socket
+        return INVALID_PORT;
     }
 
     // connect to the socket
-    if (connect(sockfd, (struct sockaddr*)ai->ai_addr, ai->ai_addrlen) == -1) {
+    if (connect(sockfd, (struct sockaddr*)ai->ai_addr, ai->ai_addrlen)) {
         close(sockfd);
-        return false; // failed to connect to socket
+        return INVALID_PORT;
     }
+
 
     // dup to get seperate streams that can be closed independently
     int fd = dup(sockfd);
     info->to = fdopen(sockfd, "w");
     info->from = fdopen(fd, "r");
     strcpy(info->port, port);
-    return true;
+    return SUCCESS;
 }
 
-bool listen_on_ephemeral(AgentInfo* info) {
+/**
+ * Listen on an ephemeral port on localhost.
+ *
+ * port (int*): store the listened to port here
+ *
+ * Returns SUCCESS if successful, otherwise the appropriate error.
+ *
+ */
+ClientError listen_on_ephemeral(int* port, int* socketFd) {
     // get the address info on localhost
     struct addrinfo* ai = 0;
     struct addrinfo hints;
@@ -152,35 +258,92 @@ bool listen_on_ephemeral(AgentInfo* info) {
 
     if (getaddrinfo(NULL, "0", &hints, &ai)) {
         freeaddrinfo(ai);
-        return false;
+        return INVALID_PORT;
     }
 
     // get the socket descriptor
     int sockfd;
     if ((sockfd = socket(ai->ai_family, ai->ai_socktype, 0)) == -1) {
-        return false;
+        return INVALID_PORT;
     }
+    *socketFd = sockfd;
 
     // bind the socket to the port from the getaddrinfo
     if (bind(sockfd, (struct sockaddr*)ai->ai_addr, sizeof(struct sockaddr))) {
-        return false;
+        return INVALID_PORT;
     }
 
     struct sockaddr_in ad;
     memset(&ad, 0, sizeof(struct sockaddr_in));
     socklen_t len = sizeof(struct sockaddr_in);
     if (getsockname(sockfd, (struct sockaddr*)&ad, &len)) {
-        return false;
+        return INVALID_PORT;
     }
-    info->port = ntohs(ad.sin_port);
-    return true;
+
+    if (listen(sockfd, 10)) {
+        //
+    }
+
+    *port = ntohs(ad.sin_port);
+    return SUCCESS;
 }
 
+/**
+ * Send a match request to the server.
+ *
+ * info (AgentInfo*): the info to be sent, also holds the file descriptor
+ *
+ */
 void send_match_request(AgentInfo* info) {
     fprintf(info->server.to, "MR:%s:%d\n", info->name, info->port);
     fflush(info->server.to);
 }
 
+/**
+ * Compares two moves according to the game rules.
+ *
+ * playerMove (MoveType): the first move
+ * opponentMove (MoveType): the second move
+ *
+ * Returns the result from the perspective of the player
+ *
+ */
+Result compare_moves(MoveType playerMove, MoveType opponentMove) {
+    switch (playerMove) {
+        case ROCK:
+            if (opponentMove == PAPER) {
+                return LOSE;
+            } else if (opponentMove == SCISSORS) {
+                return WIN;
+            }
+            break;
+        case SCISSORS:
+            if (opponentMove == ROCK) {
+                return LOSE;
+            } else if (opponentMove == PAPER) {
+                return WIN;
+            }
+            break;
+        case PAPER:
+            if (opponentMove == SCISSORS) {
+                return LOSE;
+            } else if (opponentMove == ROCK) {
+                return WIN;
+            }
+            break;
+    }
+    return TIE;
+}
+
+/**
+ * Read a match message recieved from the server.
+ *
+ * from (FILE*): the file descriptor to read from
+ * match (Match*): the match to be initialised
+ *
+ * Returns SUCCESS if successful, otherwise the appropriate error.
+ *
+ */
 ClientError read_match_message(FILE* from, Match* match) {
     char* line = read_line(from);
 
@@ -223,13 +386,107 @@ ClientError read_match_message(FILE* from, Match* match) {
         }
     }
 
+    match->server = init_server();
     return SUCCESS;
 }
 
-void run_match(AgentInfo* info, Match* match) {
-    connect_to_server(&match->server, match->port);
+/**
+ * Converts a MoveType enum to string format.
+ *
+ * type (MoveType): the move to convert
+ *
+ * The string representation of this move.
+ *
+ */
+char* move_as_string(MoveType type) {
+    char* moves[3] = {"ROCK", "PAPER", "SCISSORS"};
+    return moves[type];
+}
 
-    // play
+/**
+ * Read a move message from the opponent.
+ *
+ * stream (FILE*): the stream of the opponent
+ *
+ * Returns the move made by the opponent.
+ *
+ */
+MoveType read_move_message(FILE* stream) {
+    char* line = read_line(stream);
+    char* move = malloc(0);
+    int length = 0;
+
+    int location = strlen("MOVE:");
+    while (line[location] != '\0') {
+        move = realloc(move, sizeof(char) * ++length);
+        move[length - 1] = line[location++];
+    }
+
+    if (!strcmp(move, "ROCK")) {
+        return ROCK;
+    } else if (!strcmp(move, "PAPER")) {
+        return PAPER;
+    } else {
+        return SCISSORS;
+    }
+}
+
+/**
+ * Play a single match with the opponent at the next port.
+ * 
+ * info (AgentInfo*): the info of the current agent
+ * match (Match*): the info with the current match
+ *
+ * Returns SUCCESS if successful.
+ *
+ */
+ClientError play_match(AgentInfo* info, Match* match) {
+    ClientError err;
+    if ((err = connect_to_server(&match->server, match->port)) != SUCCESS) {
+        //
+        return INVALID_PORT;
+    }
+
+    int opponentFd = accept(info->socketFd, 0, 0);
+    FILE* opponent = fdopen(opponentFd, "r");
+
+    MoveType move, opponentMove;
+    for (int round = 0; round < MAX_MATCHES; round++) {
+        // generate and send move
+        move = (MoveType) (rand() % 3);
+        fprintf(match->server.to, "MOVE:%s\n", move_as_string(move));
+        fflush(match->server.to);
+
+        // recieve the move from the opponent
+        opponentMove = read_move_message(opponent);
+        
+        printf("P:%s, O:%s\n", move_as_string(move), move_as_string(opponentMove));
+        Result result = compare_moves(move, opponentMove);
+        
+        if (result == WIN) {
+            match->playerScore++;
+        } else if (result == LOSE) {
+            match->opponentScore++;
+        }
+
+        if (round >= 4) {
+            if (match->playerScore > match->opponentScore) {
+                fprintf(info->server.to, "RESULT:%d:%s\n", match->id, 
+                        info->name);
+                fflush(info->server.to);
+                return SUCCESS;
+            } else if (match->playerScore < match->opponentScore) {
+                fprintf(info->server.to, "RESULT:%d:%s\n", match->id, 
+                        match->opponentName);
+                fflush(info->server.to);
+                return SUCCESS;
+            }
+        }
+    }
+
+    fprintf(info->server.to, "RESULT:%d:TIE\n", match->id);
+    fflush(info->server.to);
+    return SUCCESS;
 }
 
 ClientError run_matchup_loop(AgentInfo* info) {
@@ -237,18 +494,28 @@ ClientError run_matchup_loop(AgentInfo* info) {
     ClientError err;
 
     while (info->matchesRemaining > 0) {
-        currentMatch = info->numMatches - info->matchesRemaining;
-        send_match_request(info);
-        if ((err = read_match_message(info->server.from, 
-                &info->matches[currentMatch])) != SUCCESS) {
+        if ((err = connect_to_server(&info->server, info->server.port)) 
+                != SUCCESS) {
             return err;
         }
 
-        run_match(info, &info->matches[currentMatch]);
+        currentMatch = info->numMatches - info->matchesRemaining;
+        
+        send_match_request(info);
+        
+        err = UNSPECIFIED;
+        while (err != SUCCESS) {
+            err = read_match_message(info->server.from,
+                    &info->matches[currentMatch]);
+        }
 
-        // send RESULT message
+        if ((err = play_match(info, &info->matches[currentMatch])) 
+                != SUCCESS) {
+            return err;
+        }
 
         info->matchesRemaining--;
+        usleep(SLEEP_TIME);
     }
 
     return SUCCESS;
@@ -260,29 +527,36 @@ int main(int argc, char** argv) {
     }
 
     AgentInfo info = init_agent();
-    if (!parse_name(argv[1], &info)) {
-        exit_client(INVALID_NAME);
-    }
-
-    if (!parse_num_matches(argv[2], &info)) {
-        exit_client(INVALID_MATCH_COUNT);
-    }
-
-    if (!connect_to_server(&info.server, argv[3])) {
-        exit_client(INVALID_PORT);
-    }
-    
-    if (!listen_on_ephemeral(&info)) {
-        exit_client(INVALID_PORT); // not sure what else to do here
-    }
-
     ClientError err;
+    if ((err = parse_name(argv[1], &info)) != SUCCESS) {
+        exit_client(err);
+    }
+
+    // seed the random number generator according to the specified algorithm
+    int seed = 0;
+    for (int i = 0; i < strlen(info.name); i++) {
+        seed += info.name[i];
+    }
+    srand(seed);
+
+    if ((err = parse_num_matches(argv[2], &info)) != SUCCESS) {
+        exit_client(err);
+    }
+
+    info.server.port = argv[3];
+    /*
+    if ((err = connect_to_server(&info.server, argv[3])) != SUCCESS) {
+        exit_client(err);
+    }
+    */
+    
+    if ((err = listen_on_ephemeral(&info.port, &info.socketFd)) != SUCCESS) {
+        exit_client(err); // not sure what else to do here
+    }
+
     if ((err = run_matchup_loop(&info)) != SUCCESS) {
         exit_client(err);
     }
 
-    // read the match message
-    // run_game_loop()
-    // usleep(50000)
     return 0;
 }
