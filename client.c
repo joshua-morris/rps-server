@@ -25,6 +25,13 @@ typedef struct Server {
     FILE* from;
 } Server;
 
+/** The possible game results */
+typedef enum Result {
+    WIN,
+    LOSE,
+    TIE
+} Result;
+
 /**
  * Represents the information for a match from the perspective of an agent.
  *
@@ -40,6 +47,7 @@ typedef struct Match {
     char* port;
     int opponentScore;
     int playerScore;
+    Result result;
     Server server;
 } Match;
 
@@ -63,13 +71,6 @@ typedef struct AgentInfo {
     Server server;
     Match* matches;
 } AgentInfo;
-
-/** The possible game results */
-typedef enum Result {
-    WIN,
-    LOSE,
-    TIE
-} Result;
 
 /** The possible errors, as per the specification, includes an UNSPECIFIED
  * type for situations not being tested.
@@ -404,6 +405,19 @@ char* move_as_string(MoveType type) {
 }
 
 /**
+ * Converts a Result enum to string format.
+ *
+ * type (Result): the result to convert
+ *
+ * The string representation of this result.
+ *
+ */
+char* result_as_string(Result result) {
+    char* results[3] = {"WIN", "LOSE", "TIE"};
+    return results[result];
+}
+
+/**
  * Read a move message from the opponent.
  *
  * stream (FILE*): the stream of the opponent
@@ -428,6 +442,14 @@ MoveType read_move_message(FILE* stream) {
         return PAPER;
     } else {
         return SCISSORS;
+    }
+}
+
+void print_match_results(Match* matches, int numMatches) {
+    for (int i = 0; i < numMatches; i++) {
+        Match current = matches[i];
+        printf("%d %s %s\n", current.id, current.opponentName,
+                result_as_string(current.result));
     }
 }
 
@@ -460,7 +482,6 @@ ClientError play_match(AgentInfo* info, Match* match) {
         // recieve the move from the opponent
         opponentMove = read_move_message(opponent);
         
-        printf("P:%s, O:%s\n", move_as_string(move), move_as_string(opponentMove));
         Result result = compare_moves(move, opponentMove);
         
         if (result == WIN) {
@@ -474,11 +495,13 @@ ClientError play_match(AgentInfo* info, Match* match) {
                 fprintf(info->server.to, "RESULT:%d:%s\n", match->id, 
                         info->name);
                 fflush(info->server.to);
+                match->result = WIN;
                 return SUCCESS;
             } else if (match->playerScore < match->opponentScore) {
                 fprintf(info->server.to, "RESULT:%d:%s\n", match->id, 
                         match->opponentName);
                 fflush(info->server.to);
+                match->result = LOSE;
                 return SUCCESS;
             }
         }
@@ -486,9 +509,17 @@ ClientError play_match(AgentInfo* info, Match* match) {
 
     fprintf(info->server.to, "RESULT:%d:TIE\n", match->id);
     fflush(info->server.to);
+    match->result = TIE;
     return SUCCESS;
 }
 
+/**
+ * Run the matchup loop for a client.
+ *
+ * info (AgentInfo*): the info for this agent.
+ *
+ * Returns SUCCESS if successful.
+ */
 ClientError run_matchup_loop(AgentInfo* info) {
     int currentMatch;
     ClientError err;
@@ -517,6 +548,7 @@ ClientError run_matchup_loop(AgentInfo* info) {
         info->matchesRemaining--;
         usleep(SLEEP_TIME);
     }
+    print_match_results(info->matches, info->numMatches);
 
     return SUCCESS;
 }
