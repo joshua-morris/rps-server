@@ -30,6 +30,8 @@ void destroy_channel(struct Channel* channel, void (*clean)(void*));
 // written to.
 bool write_channel(struct Channel* channel, void* data);
 
+bool write_channel2(struct Channel* channel, void* data);
+
 // Attempts to read a piece of data from the channel. Takes as arguments a
 // pointer to the channel, and a pointer to where the data should be stored on
 // a successful channel. On success, returns true and sets *output to the read
