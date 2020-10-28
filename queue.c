@@ -35,7 +35,7 @@ bool write_queue(struct Queue* queue, void* data) {
     // Make a new block of memory to store our data in
     // Then copy the new item into it
     void* newElement = malloc(queue->elementSize);
-    memcpy(newElement, &data, queue->elementSize);
+    memcpy(newElement, data, queue->elementSize);
 
     // Now we put the new element into the queue
     queue->data[queue->writeEnd] = newElement;

@@ -38,6 +38,9 @@ typedef enum Result {
  * id: the id of this match
  * opponentName: the name of the opponent in the match
  * port: the port to connect to, to play
+ * opponentScore: the score of the opponent
+ * playerScore: the score of the agent
+ * result: the result of the match
  * server: the server information for the opponent
  *
  */
@@ -58,6 +61,7 @@ typedef struct Match {
  * numMatches: the number of matches this agent will play
  * matchesRemaining: the number of matches this agent has left to play
  * port: the port this agent is listening on
+ * socketFd: the fd agent is listening to 
  * server: the rpsserver info
  * matches: the matches that this agent will play
  *
@@ -72,7 +76,8 @@ typedef struct AgentInfo {
     Match* matches;
 } AgentInfo;
 
-/** The possible errors, as per the specification, includes an UNSPECIFIED
+/** 
+ * The possible errors, as per the specification, includes an UNSPECIFIED
  * type for situations not being tested.
  */
 typedef enum ClientError {
@@ -91,13 +96,31 @@ typedef enum MoveType {
     SCISSORS
 } MoveType;
 
+void free_server(Server* server) {
+    free(server->port);
+}
+
+void free_match(Match* match) {
+    free(match->opponentName);
+    free(match->port);
+    free_server(&match->server);
+}
+
+void free_agent(AgentInfo* info) {
+    free(info->name);
+    for (int i = 0; i < info->numMatches; i++) {
+        free_match(&info->matches[i]);
+    }
+    free(info->matches);
+}
+
 /**
  * Exits the client with a given error.
  *
  * err (ClientError): the error to exit with
  *
  */
-void exit_client(ClientError err) {
+void exit_client(AgentInfo* info, ClientError err) {
     switch (err) {
         case INCORRECT_ARG_COUNT:
             fprintf(stderr, "Usage: rpsclient name matches port\n");
@@ -114,7 +137,9 @@ void exit_client(ClientError err) {
         default:
             break;
     }
-
+    if (info != NULL) {
+        free_agent(info);
+    }
     exit(err);
 }
 
@@ -386,6 +411,10 @@ ClientError read_match_message(FILE* from, Match* match) {
             continue;
         }
     }
+    match->opponentName = realloc(match->opponentName, sizeof(char) * opponentNameLength + 1);
+    match->opponentName[opponentNameLength] = '\0';
+    match->port = realloc(match->port, sizeof(char) * portLength + 1);
+    match->port[portLength] = '\0';
 
     match->server = init_server();
     return SUCCESS;
@@ -555,13 +584,13 @@ ClientError run_matchup_loop(AgentInfo* info) {
 
 int main(int argc, char** argv) {
     if (argc != 4) {
-        exit_client(INCORRECT_ARG_COUNT);
+        exit_client(NULL, INCORRECT_ARG_COUNT);
     }
 
     AgentInfo info = init_agent();
     ClientError err;
     if ((err = parse_name(argv[1], &info)) != SUCCESS) {
-        exit_client(err);
+        exit_client(&info, err);
     }
 
     // seed the random number generator according to the specified algorithm
@@ -572,22 +601,17 @@ int main(int argc, char** argv) {
     srand(seed);
 
     if ((err = parse_num_matches(argv[2], &info)) != SUCCESS) {
-        exit_client(err);
+        exit_client(&info, err);
     }
 
     info.server.port = argv[3];
-    /*
-    if ((err = connect_to_server(&info.server, argv[3])) != SUCCESS) {
-        exit_client(err);
-    }
-    */
     
     if ((err = listen_on_ephemeral(&info.port, &info.socketFd)) != SUCCESS) {
-        exit_client(err); // not sure what else to do here
+        exit_client(&info, err); // this isn't tested 
     }
 
     if ((err = run_matchup_loop(&info)) != SUCCESS) {
-        exit_client(err);
+        exit_client(&info, err);
     }
 
     return 0;
