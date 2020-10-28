@@ -26,6 +26,7 @@ void destroy_queue(struct Queue* queue, void (*clean)(void*)) {
     free(queue->data);
 }
 
+
 bool write_queue(struct Queue* queue, void* data) {
     
     if (queue->writeEnd == queue->readEnd) {

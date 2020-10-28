@@ -8,7 +8,7 @@
 
 #include "shared.h"
 
-#define SLEEP_TIME 50000
+#define SLEEP_TIME 250000
 #define MAX_MATCHES 20
 
 /**
@@ -442,7 +442,7 @@ char* move_as_string(MoveType type) {
  *
  */
 char* result_as_string(Result result) {
-    char* results[3] = {"WIN", "LOSE", "TIE"};
+    char* results[3] = {"WIN", "LOST", "TIE"};
     return results[result];
 }
 

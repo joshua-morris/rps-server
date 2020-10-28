@@ -14,6 +14,12 @@
 #define BACKLOG 128
 #define MAX_INPUT 80
 
+#define TIE 0
+#define WIN 1
+#define LOSS 2
+
+struct Channel* globalResults;
+
 /** Exit codes defined on spec */
 typedef enum ServerError {
     INCORRECT_ARG_COUNT
@@ -32,20 +38,38 @@ typedef struct Player {
     char* name;
     int wins;
     int ties;
-    int loses;
+    int losses;
 } Player;
+
+typedef struct Result {
+    char* player;
+    int result;
+} Result;
 
 /**
  * A match request
  *
  * name (char*): the player name
  * port (char*): the port they are listening on
+ * stream (FILE*): so we can send a message to this client
  *
  */
 typedef struct Request {
     char* name;
     char* port;
+    FILE* stream;
+    struct Channel* results;
 } Request;
+
+typedef struct Match {
+    char* playerPort;
+    char* opponentPort;
+    int id;
+    char* opponentName;
+    char* playerName;
+    FILE* stream;
+    struct Channel* results;
+} Match;
 
 /**
  * Represents a client connected to the server
@@ -57,8 +81,8 @@ typedef struct Request {
  */
 typedef struct Client {
     FILE* stream;
-    pthread_t id;
     struct Channel* requests;
+    pthread_t id;
     Request request;
 } Client;
 
@@ -126,6 +150,7 @@ int create_server(ServerInfo* info) {
     int serv = socket(ai->ai_family, ai->ai_socktype, 0);
     info->socketFd = serv;
     info->requests = new_channel(sizeof(Request));
+    info->results = new_channel(sizeof(Result)); 
     info->numClients = 0;
     info->clients = malloc(info->numClients);
 
@@ -226,8 +251,61 @@ void* wait_for_request(void* clientArg) {
         Request* current = malloc(sizeof(Request));
         current->name = strdup(client->request.name);
         current->port = strdup(client->request.port);
+        current->stream = client->stream;
+        current->results = client->request.results;
         write_channel(client->requests, (void*) current);
     }
+    return NULL;
+}
+
+void add_result(struct Channel* results, char* player, int result) {
+    Result* newResult = malloc(sizeof(Result));
+    newResult->player = player;
+    newResult->result = result;
+    write_channel(results, (void*) newResult);
+}
+
+void read_result_message(FILE* stream, struct Channel* results, char* player) {
+    char* line = read_line(stream);
+    int count = 0;
+    int location = sizeof("RESULT:");
+
+    int resultLength = 0;
+    char* result = malloc(0);
+    while (line[location] != '\0') {
+        if (line[location] == ':') {
+            count++;
+            location++;
+            continue;
+        }
+
+        if (count == 1) {
+            result = realloc(result, ++resultLength * sizeof(char));
+            result[resultLength - 1] = line[location];
+        }
+        location++;
+    }
+    result[resultLength] = '\0';
+    if (!strcmp("TIE", result)) {
+        add_result(results, player, TIE);
+    } else if (!strcmp(player, result)) {
+        add_result(results, player, WIN);
+    } else {
+        add_result(results, player, LOSS);
+    }
+
+    free(result);
+    free(line);
+}
+
+void* new_match(void* matchArg) {
+    Match* match = (Match*) matchArg;
+    
+    fprintf(match->stream, "MATCH:%d:%s:%s\n", match->id, match->opponentName,
+            match->opponentPort);
+    fflush(match->stream);
+    read_result_message(match->stream, match->results, match->playerName);
+    fclose(match->stream);
     return NULL;
 }
 
@@ -237,21 +315,42 @@ void* wait_for_request(void* clientArg) {
  * args (void*): will be cast to a Channel*
  *
  * Returns NULL
+ *
  */
 void* match_clients(void* args) {
     struct Channel* requests = (struct Channel*) args;
 
     Request requestOne, requestTwo;
+    int match = 1;
     while (1) {
-        while (!(read_channel(requests, (void**) &requestOne))) {
-            continue;
+        while (1) {
+            if (read_channel(requests, (void**) &requestOne)) {
+                break;
+            }
         }
-        while (!(read_channel(requests, (void**) &requestTwo))) {
-            continue;
+        while (1) {
+            if (read_channel(requests, (void**) &requestTwo)) {
+                break;
+            }
         }
-        printf("Player 1: %s, Port: %s\n Player 2: %s, Port: %s\n",
-                requestOne.name, requestOne.port, requestTwo.name, 
-                requestTwo.port);
+        
+        Match matchOne = {.playerPort = requestOne.port, 
+                .opponentPort = requestTwo.port, 
+                .playerName = requestOne.name,
+                .opponentName = requestTwo.name, .id = match,
+                .stream = requestOne.stream, 
+                .results = requestOne.results}; 
+        Match matchTwo = {.playerPort = requestTwo.port,
+                .opponentPort = requestOne.port,
+                .playerName = requestTwo.name,
+                .opponentName = requestOne.name, .id = match,
+                .stream = requestTwo.stream,
+                .results = requestTwo.results};
+
+        pthread_t playerOne, playerTwo;
+        pthread_create(&playerOne, NULL, new_match, (void*) &matchOne);
+        pthread_create(&playerTwo, NULL, new_match, (void*) &matchTwo);
+        match++;
     }
 
     return NULL;
@@ -275,14 +374,77 @@ void take_connections(ServerInfo* info) {
         info->numClients++;
         info->clients = realloc(info->clients, 
                 sizeof(Client*) * info->numClients);
-        current = fdopen(clientFd, "r");
-        info->clients[info->numClients - 1] = malloc(sizeof(Client*));
+        current = fdopen(clientFd, "w+");
+        info->clients[info->numClients - 1] = malloc(sizeof(Client));
         info->clients[info->numClients - 1]->stream = current;
         info->clients[info->numClients - 1]->requests = &info->requests;
+        info->clients[info->numClients - 1]->request.results = &info->results;
         pthread_create(&info->clients[info->numClients - 1]->id, NULL, 
                 wait_for_request, 
                 (void*) info->clients[info->numClients - 1]);
     }
+}
+
+void increase_result(Player** players, char* player, int result,
+        int numPlayers) {
+    int index = -1;
+    for (int i = 0; i < numPlayers; i++) {
+        if (!(strcmp((*players)[i].name, player))) {
+            index = i;
+            break;
+        }
+    }
+    
+    if (result == TIE) {
+        (*players)[index].ties++;
+    } else if (result == WIN) {
+        (*players)[index].wins++;
+    } else {
+        (*players)[index].losses++;
+    }
+}
+
+bool contains_player(Player* players, char* player, int numPlayers) {
+    for (int i = 0; i < numPlayers; i++) {
+        Player current = players[i];
+        if (!(strcmp(current.name, player))) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void print_results(Player* results, int numPlayers) {
+    for (int i = 0; i < numPlayers; i++) {
+        printf("%s %d %d %d\n", results[i].name, results[i].wins,
+                results[i].losses, results[i].ties);
+        //fflush(stdout);
+    }
+
+    printf("---\n");
+    fflush(stdout);
+}
+
+void handle_sighup() {
+    int numPlayers = 0;
+    Player* results = malloc(0);
+    Result* current;
+    
+    for (int i = 0; i < globalResults->inner.writeEnd; i++) {
+        current = globalResults->inner.data[i];
+        if (!(contains_player(results, current->player, numPlayers))) {
+            numPlayers++;
+            results = realloc(results, sizeof(Player) * numPlayers);
+            Player newPlayer = {.name = current->player, .wins = 0,
+                .ties = 0, .losses = 0};
+            results[numPlayers - 1] = newPlayer;
+        }
+        increase_result(&results, current->player, current->result,
+                numPlayers);
+    }
+    
+    
+    print_results(results, numPlayers);
 }
 
 int main(int argc, char** argv) {
@@ -296,6 +458,12 @@ int main(int argc, char** argv) {
     if ((err = create_server(&info)) != 0) {
         return err;
     }
+    
+    globalResults = &info.results;
+   
+    struct sigaction sa;
+    sa.sa_handler = handle_sighup;
+    sigaction(SIGHUP, &sa, 0);
 
     pthread_t id;
     pthread_create(&id, NULL, match_clients, (void*) &info.requests);

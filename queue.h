@@ -34,6 +34,8 @@ void destroy_queue(struct Queue* queue, void (*clean)(void*));
 // successful, and false if the queue was full and unable to be written to.
 bool write_queue(struct Queue* queue, void* data);
 
+bool write_queue2(struct Queue* queue, void* data);
+
 // Attempts to read a piece of data from the queue. Takes as arguments a
 // pointer to the queue, and a pointer to where the data should be stored on a
 // successful queue. On success, returns true and sets *output to the read
