@@ -7,8 +7,6 @@
 #include <pthread.h>
 #include <semaphore.h>
 
-#include "queue.h"
-#include "channel.h"
 #include "shared.h"
 
 #define BACKLOG 128
