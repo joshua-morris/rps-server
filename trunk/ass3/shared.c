@@ -51,15 +51,11 @@ bool check_tag(char* tag, char* line) {
     return strncmp(tag, line, strlen(tag)) == 0;
 }
 
-
-// Starting length of the queue.
-const int QUEUE_CAPACITY = 1000;
-
 struct Queue new_queue(size_t elementSize) {
-
     struct Queue output;
 
-    output.data = malloc(elementSize * QUEUE_CAPACITY);
+    output.size = 1000;
+    output.data = malloc(elementSize * output.size);
     output.readEnd = -1; // queue is empty
     output.writeEnd = 0; // put first piece of data at the start of the queue
     output.elementSize = elementSize;
@@ -94,7 +90,7 @@ bool write_queue(struct Queue* queue, void* data) {
     if (queue->readEnd == -1) {
         queue->readEnd = queue->writeEnd;
     }
-    queue->writeEnd = (queue->writeEnd + 1) % QUEUE_CAPACITY;
+    queue->writeEnd = (queue->writeEnd + 1) % queue->size;
 
     return true;
 }
@@ -115,7 +111,7 @@ bool read_queue(struct Queue* queue, void** output) {
     // Free the block of memory we allocated for the element
     free(queue->data[queue->readEnd]);
 
-    queue->readEnd = (queue->readEnd + 1) % QUEUE_CAPACITY;
+    queue->readEnd = (queue->readEnd + 1) % queue->size;
 
     if (queue->readEnd == queue->writeEnd) {
         queue->readEnd = -1;
@@ -155,6 +151,16 @@ bool read_channel(struct Channel* channel, void** out) {
     return output;
 }
 
+/**
+ * Does the player results contain this player
+ *
+ * players (Player*): the player results
+ * player (char*): the player to check
+ * numPlayers (int): the number of players in results
+ *
+ * Returns true if it does
+ *
+ */
 bool contains_player(Player* players, char* player, int numPlayers) {
     for (int i = 0; i < numPlayers; i++) {
         Player current = players[i];
@@ -165,6 +171,14 @@ bool contains_player(Player* players, char* player, int numPlayers) {
     return false;
 }
 
+/**
+ * Increase the result of a player
+ *
+ * players (Player**): the player results
+ * player (char*): the player
+ * result (int): the result to increase
+ *
+ */
 void increase_result(Player** players, char* player, int result,
         int numPlayers) {
     int index = -1;
@@ -184,6 +198,12 @@ void increase_result(Player** players, char* player, int result,
     }
 }
 
+/**
+ * Print out the results in the specified format
+ *
+ * channel (Channel*): the results struct
+ *
+ */
 void print_results(struct Channel* channel) {
     int numPlayers = 0;
     Player* results = malloc(0);
