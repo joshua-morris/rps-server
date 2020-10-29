@@ -14,8 +14,8 @@ debug: $(TARGETS)
 shared.o: shared.c shared.h
 	$(CC) $(CFLAGS) -c shared.c -o shared.o
 
-channel.o: channel.c channel.h
-	$(CC) $(CFLAGS) -c channel.c -o channel.o
+channel.o: channel.c channel.h shared.o
+	$(CC) $(CFLAGS) shared.o -c channel.c -o channel.o
 
 queue.o: queue.c queue.h
 	$(CC) $(CFLAGS) -c queue.c -o queue.o	

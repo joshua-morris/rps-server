@@ -15,6 +15,15 @@ struct Channel {
     sem_t guard;
 };
 
+typedef struct Player {
+    char* name;
+    int wins;
+    int ties;
+    int losses;
+} Player;
+
+void print_results(struct Channel* channel);
+
 // Creates (and returns) a new, empty channel, with no data in it.
 struct Channel new_channel(size_t elementSize);
 

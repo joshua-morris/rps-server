@@ -8,7 +8,7 @@
 
 #include "shared.h"
 
-#define SLEEP_TIME 250000
+#define SLEEP_TIME 50000
 #define MAX_MATCHES 20
 
 /**
@@ -24,13 +24,6 @@ typedef struct Server {
     FILE* to;
     FILE* from;
 } Server;
-
-/** The possible game results */
-typedef enum Result {
-    WIN,
-    LOSE,
-    TIE
-} Result;
 
 /**
  * Represents the information for a match from the perspective of an agent.
@@ -50,7 +43,7 @@ typedef struct Match {
     char* port;
     int opponentScore;
     int playerScore;
-    Result result;
+    GameResult result;
     Server server;
 } Match;
 
@@ -334,7 +327,7 @@ void send_match_request(AgentInfo* info) {
  * Returns the result from the perspective of the player
  *
  */
-Result compare_moves(MoveType playerMove, MoveType opponentMove) {
+GameResult compare_moves(MoveType playerMove, MoveType opponentMove) {
     switch (playerMove) {
         case ROCK:
             if (opponentMove == PAPER) {
@@ -441,7 +434,7 @@ char* move_as_string(MoveType type) {
  * The string representation of this result.
  *
  */
-char* result_as_string(Result result) {
+char* result_as_string(GameResult result) {
     char* results[3] = {"WIN", "LOST", "TIE"};
     return results[result];
 }
@@ -511,7 +504,7 @@ ClientError play_match(AgentInfo* info, Match* match) {
         // recieve the move from the opponent
         opponentMove = read_move_message(opponent);
         
-        Result result = compare_moves(move, opponentMove);
+        GameResult result = compare_moves(move, opponentMove);
         
         if (result == WIN) {
             match->playerScore++;
