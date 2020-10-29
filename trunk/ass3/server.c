@@ -14,37 +14,12 @@
 #define BACKLOG 128
 #define MAX_INPUT 80
 
-#define TIE 0
-#define WIN 1
-#define LOSS 2
-
 struct Channel* globalResults;
 
 /** Exit codes defined on spec */
 typedef enum ServerError {
-    INCORRECT_ARG_COUNT
+    INCORRECT_ARG_COUNT = 1
 } ServerError;
-
-/**
- * A player and it's results
- *
- * name (char*): the player name
- * wins (int): the number of wins
- * ties (int): the number of ties
- * losses (int): the number of losses
- *
- */
-typedef struct Player {
-    char* name;
-    int wins;
-    int ties;
-    int losses;
-} Player;
-
-typedef struct Result {
-    char* player;
-    int result;
-} Result;
 
 /**
  * A match request
@@ -258,7 +233,7 @@ void* wait_for_request(void* clientArg) {
     return NULL;
 }
 
-void add_result(struct Channel* results, char* player, int result) {
+void add_result(struct Channel* results, char* player, GameResult result) {
     Result* newResult = malloc(sizeof(Result));
     newResult->player = player;
     newResult->result = result;
@@ -291,7 +266,7 @@ void read_result_message(FILE* stream, struct Channel* results, char* player) {
     } else if (!strcmp(player, result)) {
         add_result(results, player, WIN);
     } else {
-        add_result(results, player, LOSS);
+        add_result(results, player, LOSE);
     }
 
     free(result);
@@ -385,66 +360,8 @@ void take_connections(ServerInfo* info) {
     }
 }
 
-void increase_result(Player** players, char* player, int result,
-        int numPlayers) {
-    int index = -1;
-    for (int i = 0; i < numPlayers; i++) {
-        if (!(strcmp((*players)[i].name, player))) {
-            index = i;
-            break;
-        }
-    }
-    
-    if (result == TIE) {
-        (*players)[index].ties++;
-    } else if (result == WIN) {
-        (*players)[index].wins++;
-    } else {
-        (*players)[index].losses++;
-    }
-}
-
-bool contains_player(Player* players, char* player, int numPlayers) {
-    for (int i = 0; i < numPlayers; i++) {
-        Player current = players[i];
-        if (!(strcmp(current.name, player))) {
-            return true;
-        }
-    }
-    return false;
-}
-
-void print_results(Player* results, int numPlayers) {
-    for (int i = 0; i < numPlayers; i++) {
-        printf("%s %d %d %d\n", results[i].name, results[i].wins,
-                results[i].losses, results[i].ties);
-        //fflush(stdout);
-    }
-
-    printf("---\n");
-    fflush(stdout);
-}
-
 void handle_sighup() {
-    int numPlayers = 0;
-    Player* results = malloc(0);
-    Result* current;
-    
-    for (int i = 0; i < globalResults->inner.writeEnd; i++) {
-        current = globalResults->inner.data[i];
-        if (!(contains_player(results, current->player, numPlayers))) {
-            numPlayers++;
-            results = realloc(results, sizeof(Player) * numPlayers);
-            Player newPlayer = {.name = current->player, .wins = 0,
-                .ties = 0, .losses = 0};
-            results[numPlayers - 1] = newPlayer;
-        }
-        increase_result(&results, current->player, current->result,
-                numPlayers);
-    }
-    
-    
-    print_results(results, numPlayers);
+    print_results(globalResults);
 }
 
 int main(int argc, char** argv) {
