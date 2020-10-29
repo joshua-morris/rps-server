@@ -53,7 +53,7 @@ bool check_tag(char* tag, char* line) {
 
 
 // Starting length of the queue.
-const int QUEUE_CAPACITY = 10;
+const int QUEUE_CAPACITY = 1000;
 
 struct Queue new_queue(size_t elementSize) {
 

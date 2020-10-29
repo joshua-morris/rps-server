@@ -133,6 +133,7 @@ void exit_client(AgentInfo* info, ClientError err) {
     if (info != NULL) {
         free_agent(info);
     }
+    fflush(stderr);
     exit(err);
 }
 
@@ -229,8 +230,8 @@ ClientError connect_to_server(Server* info, char* port) {
     hints.ai_family = AF_INET; // IPv4
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE; // use the localhost
-
     int err;
+    
     if ((err = getaddrinfo(NULL, port, &hints, &ai)) != 0) {
         freeaddrinfo(ai);
         return INVALID_PORT; // failed to getaddrinfo
@@ -247,7 +248,6 @@ ClientError connect_to_server(Server* info, char* port) {
         close(sockfd);
         return INVALID_PORT;
     }
-
 
     // dup to get seperate streams that can be closed independently
     int fd = dup(sockfd);
@@ -364,12 +364,15 @@ GameResult compare_moves(MoveType playerMove, MoveType opponentMove) {
  *
  */
 ClientError read_match_message(FILE* from, Match* match) {
-    char* line = read_line(from);
+    char* line;
 
+    if ((line = read_line(from)) == NULL) {
+        return INVALID_PORT;
+    }
     if (!strcmp(line, "BADNAME")) {
         return INVALID_NAME;
     }
-
+    
     // skip past the MATCH
     int location = strlen("MATCH:"); 
 
@@ -487,7 +490,6 @@ void print_match_results(Match* matches, int numMatches) {
 ClientError play_match(AgentInfo* info, Match* match) {
     ClientError err;
     if ((err = connect_to_server(&match->server, match->port)) != SUCCESS) {
-        //
         return INVALID_PORT;
     }
 
@@ -560,6 +562,10 @@ ClientError run_matchup_loop(AgentInfo* info) {
         while (err != SUCCESS) {
             err = read_match_message(info->server.from,
                     &info->matches[currentMatch]);
+            
+            if (err == INVALID_PORT) {
+                return err;
+            }
         }
 
         if ((err = play_match(info, &info->matches[currentMatch])) 
