@@ -33,6 +33,8 @@ struct Queue {
     // How large the elements are that we are storing
     // We need this to prevent ourselves from moving into bad memory
     size_t elementSize;
+    // the size of the queue
+    int size;
 };
 
 // A threadsafe channel. 

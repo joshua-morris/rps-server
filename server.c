@@ -12,6 +12,7 @@
 #define BACKLOG 128
 #define MAX_INPUT 80
 
+// A global results struct used when handling signal hangup
 struct Channel* globalResults;
 
 /** Exit codes defined on spec */
@@ -231,6 +232,14 @@ void* wait_for_request(void* clientArg) {
     return NULL;
 }
 
+/**
+ * Add a result to the results queue
+ *
+ * results (struct Channel*): the results queue
+ * player (char*): the player to add
+ * results (GameResult): the result to add
+ *
+ */
 void add_result(struct Channel* results, char* player, GameResult result) {
     Result* newResult = malloc(sizeof(Result));
     newResult->player = player;
@@ -238,6 +247,14 @@ void add_result(struct Channel* results, char* player, GameResult result) {
     write_channel(results, (void*) newResult);
 }
 
+/**
+ * Read a RESULT message from the client
+ *
+ * stream (FILE*): the input stream
+ * results (struct Channel*): the results queue
+ * player (char*): the player
+ *
+ */
 void read_result_message(FILE* stream, struct Channel* results, char* player) {
     char* line = read_line(stream);
     int count = 0;
@@ -271,6 +288,15 @@ void read_result_message(FILE* stream, struct Channel* results, char* player) {
     free(line);
 }
 
+/**
+ * Start a new match on a new thread. From the perspective
+ * of a single agent, waits for a RESULT.
+ *
+ * matchArg (void*): the match
+ *
+ * Returns NULL
+ *
+ */
 void* new_match(void* matchArg) {
     Match* match = (Match*) matchArg;
     
@@ -358,6 +384,10 @@ void take_connections(ServerInfo* info) {
     }
 }
 
+/**
+ * Handles a signal hangup, prints out the game results
+ *
+ */
 void handle_sighup() {
     print_results(globalResults);
 }

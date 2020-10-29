@@ -89,16 +89,34 @@ typedef enum MoveType {
     SCISSORS
 } MoveType;
 
+/**
+ * Free all the memory associated with an server
+ *
+ * info (Server*): the server to free
+ *
+ */
 void free_server(Server* server) {
     free(server->port);
 }
 
+/**
+ * Free all the memory associated with a match
+ *
+ * info (Match*): the match to free
+ *
+ */
 void free_match(Match* match) {
     free(match->opponentName);
     free(match->port);
     free_server(&match->server);
 }
 
+/**
+ * Free all the memory associated with an agent
+ *
+ * info (AgentInfo*): the agent to free
+ *
+ */
 void free_agent(AgentInfo* info) {
     free(info->name);
     for (int i = 0; i < info->numMatches; i++) {
@@ -375,7 +393,6 @@ ClientError read_match_message(FILE* from, Match* match) {
     
     // skip past the MATCH
     int location = strlen("MATCH:"); 
-
     // read the match id
     sscanf(line + location, "%d", &match->id);
 
@@ -407,11 +424,11 @@ ClientError read_match_message(FILE* from, Match* match) {
             continue;
         }
     }
-    match->opponentName = realloc(match->opponentName, sizeof(char) * opponentNameLength + 1);
+    match->opponentName = realloc(match->opponentName, sizeof(char) 
+            * opponentNameLength + 1);
     match->opponentName[opponentNameLength] = '\0';
     match->port = realloc(match->port, sizeof(char) * portLength + 1);
     match->port[portLength] = '\0';
-
     match->server = init_server();
     return SUCCESS;
 }
@@ -470,6 +487,13 @@ MoveType read_move_message(FILE* stream) {
     }
 }
 
+/**
+ * Print the results of all this client's matches
+ *
+ * matches (Matches*): the matches to print
+ * numMatches (int): the number of matches
+ *
+ */
 void print_match_results(Match* matches, int numMatches) {
     for (int i = 0; i < numMatches; i++) {
         Match current = matches[i];
