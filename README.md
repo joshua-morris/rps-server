@@ -6,7 +6,7 @@ To start the server:
 ```
 ./rpsserver
 ```
-which will listen and print an ephemeral port.
+which will listen on and print an ephemeral port.
 
 To connect:
 ```
